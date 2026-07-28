@@ -3,27 +3,51 @@ import pandas as pd
 import sqlite3
 import hashlib
 from datetime import datetime
-import os
 
-# --- DATABASE SETUP ---
-DB_FILE = "dems_database.db"
-STORAGE_DIR = "evidence_vault"
+# Page Configuration
+st.set_page_config(
+    page_title="DEMS - Forensic Portal",
+    page_icon="⚖️",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-if not os.path.exists(STORAGE_DIR):
-    os.makedirs(STORAGE_DIR)
+# Custom Mobile-Friendly Styling
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #4A90E2;
+        margin-bottom: 0px;
+    }
+    .sub-header {
+        font-size: 0.9rem;
+        color: #888888;
+        margin-bottom: 20px;
+    }
+    .stMetric {
+        background-color: #1E222A;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid #313745;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
+# Database Setup
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect("dems.db")
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS evidence (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             case_id TEXT NOT NULL,
             item_number TEXT NOT NULL,
+            investigator TEXT NOT NULL,
             description TEXT,
-            filename TEXT,
+            file_name TEXT,
             file_hash TEXT,
-            uploaded_by TEXT,
             timestamp TEXT
         )
     ''')
@@ -32,125 +56,97 @@ def init_db():
 
 init_db()
 
-# --- HELPER FUNCTIONS ---
-def calculate_hash(file_bytes):
-    """Generates a SHA-256 hash for data integrity."""
+# Helper function to compute SHA-256 hash
+def get_file_hash(file_bytes):
     return hashlib.sha256(file_bytes).hexdigest()
 
-def save_evidence(case_id, item_number, description, filename, file_bytes, uploaded_by):
-    """Saves file to disk and logs metadata to SQLite."""
-    # 1. Calculate Hash
-    file_hash = calculate_hash(file_bytes)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # 2. Save File safely
-    safe_filename = f"{case_id}_{item_number}_{filename}"
-    file_path = os.path.join(STORAGE_DIR, safe_filename)
-    with open(file_path, "wb") as f:
-        f.write(file_bytes)
-        
-    # 3. Log to DB
-    conn = sqlite3.connect(DB_FILE)
+# Fetch DB Stats
+def get_stats():
+    conn = sqlite3.connect("dems.db")
     c = conn.cursor()
-    c.execute('''
-        INSERT INTO evidence (case_id, item_number, description, filename, file_hash, uploaded_by, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (case_id, item_number, description, safe_filename, file_hash, uploaded_by, timestamp))
-    conn.commit()
+    c.execute("SELECT COUNT(DISTINCT case_id), COUNT(id) FROM evidence")
+    cases, items = c.fetchone()
     conn.close()
-    return file_hash
+    return cases, items
 
-def get_all_evidence():
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql_query("SELECT * FROM evidence ORDER BY id DESC", conn)
-    conn.close()
-    return df
+# Header Section
+st.markdown('<div class="main-header">⚖️ Forensics DEMS</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Digital Evidence Management & Chain of Custody</div>', unsafe_allow_html=True)
 
-# --- STREAMLIT UI ---
-st.set_page_config(page_title="Digital Evidence Management System", page_icon="⚖️", layout="wide")
+# Top Metrics Row
+total_cases, total_items = get_stats()
+m1, m2, m3 = st.columns(3)
+m1.metric("📁 Active Cases", total_cases)
+m2.metric("🔍 Logged Items", total_items)
+m3.metric("🛡️ Hash Standard", "SHA-256")
 
-st.title("⚖️ Digital Evidence Management System (DEMS)")
-st.caption("Secure Ingestion, Chain of Custody Tracking, and Integrity Verification")
 st.markdown("---")
 
 # Sidebar Navigation
-menu = ["📥 Ingest Evidence", "🔍 View Chain of Custody", "🛡️ Verify Evidence Integrity"]
-choice = st.sidebar.selectbox("Navigation Menu", menu)
+st.sidebar.title("📌 Menu")
+page = st.sidebar.radio("Navigate", ["📥 Ingest Evidence", "🔎 View & Verify Evidence"])
 
-# --- MODULE 1: INGEST EVIDENCE ---
-if choice == "📥 Ingest Evidence":
-    st.header("Log New Evidence Item")
+if page == "📥 Ingest Evidence":
+    st.subheader("📥 Ingest New Evidence")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        case_id = st.text_input("Case ID (e.g., CASE-2026-004)")
-        item_number = st.text_input("Item Number / ID (e.g., ITEM-01)")
-        uploaded_by = st.text_input("Investigator Name / Badge #")
+    with st.container():
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            case_id = st.text_input("Case ID", placeholder="e.g., CASE-2026-004")
+            item_number = st.text_input("Item Number / ID", placeholder="e.g., ITEM-01")
+            investigator = st.text_input("Investigator / Badge #", placeholder="e.g., Det. Lawal #402")
         
-    with col2:
-        description = st.text_area("Evidence Description")
-        uploaded_file = st.file_uploader("Upload Digital Evidence (Image, Video, Doc, etc.)")
+        with col2:
+            description = st.text_area("Evidence Description", placeholder="Describe artifact context...")
+            uploaded_file = st.file_uploader("Upload Digital Artifact", type=None)
 
-    if st.button("Securely Log Evidence", type="primary"):
-        if case_id and item_number and uploaded_by and uploaded_file:
-            file_bytes = uploaded_file.read()
-            
-            # Process and save
-            with st.spinner("Calculating cryptographic hash and securing file..."):
-                generated_hash = save_evidence(
-                    case_id, item_number, description, uploaded_file.name, file_bytes, uploaded_by
-                )
-                
-            st.success("🎉 Evidence successfully logged and secured!")
-            st.info(f"**Generated SHA-256 Hash:** `{generated_hash}`")
-            st.warning("⚠️ Any alteration to this file will completely change this cryptographic hash.")
-        else:
-            st.error("Please fill out all fields and upload a file.")
+        st.write("")
+        if st.button("🔒 Log Evidence & Generate Hash", type="primary", use_container_width=True):
+            if case_id and item_number and investigator and uploaded_file:
+                file_bytes = uploaded_file.read()
+                file_hash = get_file_hash(file_bytes)
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# --- MODULE 2: VIEW CHAIN OF CUSTODY ---
-elif choice == "🔍 View Chain of Custody":
-    st.header("Audit Log & Chain of Custody")
-    
-    df = get_all_evidence()
+                conn = sqlite3.connect("dems.db")
+                c = conn.cursor()
+                c.execute('''
+                    INSERT INTO evidence (case_id, item_number, investigator, description, file_name, file_hash, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (case_id, item_number, investigator, description, uploaded_file.name, file_hash, timestamp))
+                conn.commit()
+                conn.close()
+
+                st.success(f"✅ Evidence **{item_number}** registered under **{case_id}**!")
+                st.code(f"SHA-256: {file_hash}", language="text")
+                st.rerun()
+            else:
+                st.error("⚠️ Please fill in all required fields and attach a file.")
+
+elif page == "🔎 View & Verify Evidence":
+    st.subheader("🔎 Chain of Custody & Verification")
+
+    conn = sqlite3.connect("dems.db")
+    df = pd.read_sql_query("SELECT case_id, item_number, investigator, file_name, file_hash, timestamp FROM evidence ORDER BY id DESC", conn)
+    conn.close()
+
     if not df.empty:
+        st.write("### 📋 Evidence Logs")
         st.dataframe(df, use_container_width=True)
-        
-        # Download log feature
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Export Audit Log to CSV", data=csv, file_name="chain_of_custody_log.csv", mime="text/csv")
-    else:
-        st.info("No evidence has been logged in the system yet.")
 
-# --- MODULE 3: VERIFY INTEGRITY ---
-elif choice == "🛡️ Verify Evidence Integrity":
-    st.header("Verify File Integrity")
-    st.write("Upload a file to check if it matches an existing item in the database. If even a single pixel or character has changed, the verification will fail.")
-    
-    verify_file = st.file_uploader("Upload file to verify")
-    
-    if verify_file:
-        test_bytes = verify_file.read()
-        calculated_hash = calculate_hash(test_bytes)
+        st.markdown("---")
+        st.write("### 🛡️ Verify Artifact Integrity")
         
-        st.write(f"**Calculated Hash:** `{calculated_hash}`")
-        
-        # Check against DB
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT * FROM evidence WHERE file_hash = ?", (calculated_hash,))
-        result = c.fetchone()
-        conn.close()
-        
-        if result:
-            st.success("✅ **MATCH FOUND! Integrity Verified.**")
-            st.balloons()
+        verify_file = st.file_uploader("Upload File to Audit Hash Match", key="verify")
+        if verify_file:
+            verify_bytes = verify_file.read()
+            computed_hash = get_file_hash(verify_bytes)
             
-            # Display matching details
-            st.markdown(f"""
-            - **Case ID:** {result[1]}
-            - **Item ID:** {result[2]}
-            - **Original Investigator:** {result[6]}
-            - **Timestamp logged:** {result[7]}
-            """)
-        else:
-            st.error("❌ **NO MATCH FOUND. This file has either been modified or was never logged in this system.**")
+            st.info(f"**Computed Hash:** `{computed_hash}`")
+            
+            if computed_hash in df['file_hash'].values:
+                matched = df[df['file_hash'] == computed_hash].iloc[0]
+                st.success(f"✔️ **INTEGRITY VERIFIED!** Matches Case `{matched['case_id']}`, Item `{matched['item_number']}`.")
+            else:
+                st.error("🚨 **HASH MISMATCH!** File has been altered or is not logged in the system.")
+    else:
+        st.info("No evidence items currently logged in the database.")
