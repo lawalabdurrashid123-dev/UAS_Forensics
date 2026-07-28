@@ -4,7 +4,7 @@ import sqlite3
 import hashlib
 from datetime import datetime
 
-# Page Configuration - Set to Wide for Laptop view
+# Page Configuration
 st.set_page_config(
     page_title="Digital Evidence Management System (DEMS)",
     page_icon="⚖️",
@@ -12,15 +12,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Responsive CSS to make titles & buttons look crisp on both Laptop and Mobile
+# Custom Styling for Desktop & Mobile
 st.markdown("""
     <style>
-    /* Adjust main heading size for mobile screens */
     h1 {
         font-size: clamp(1.6rem, 4vw, 2.5rem) !important;
         font-weight: 700 !important;
     }
-    /* Style primary submit button to match original red highlight */
     div.stButton > button[kind="primary"] {
         background-color: #FF4B4B !important;
         color: white !important;
@@ -52,23 +50,24 @@ def init_db():
 
 init_db()
 
-# Helper function for SHA-256 hash calculation
+# SHA-256 Calculation
 def get_file_hash(file_bytes):
     return hashlib.sha256(file_bytes).hexdigest()
 
-# Sidebar Navigation
+# Navigation Menu (Split into 3 distinct items)
 st.sidebar.markdown("### Navigation Menu")
 page = st.sidebar.selectbox(
     "",
-    ["Ingest Evidence", "View & Verify Chain of Custody"],
+    ["Ingest Evidence", "View Chain of Custody", "Verify Integrity"],
     label_visibility="collapsed"
 )
 
-# Header Section (Matching Image 1)
+# Title & Subtitle
 st.title("⚖️ Digital Evidence Management System (DEMS)")
 st.caption("Secure Ingestion, Chain of Custody Tracking, and Integrity Verification")
 st.markdown("---")
 
+# Page 1: Ingest Evidence
 if page == "Ingest Evidence":
     st.header("Log New Evidence Item")
     
@@ -104,31 +103,38 @@ if page == "Ingest Evidence":
         else:
             st.error("⚠️ Please fill in all fields and attach an evidence file.")
 
-elif page == "View & Verify Chain of Custody":
-    st.header("Chain of Custody & File Integrity")
+# Page 2: View Chain of Custody
+elif page == "View Chain of Custody":
+    st.header("Chain of Custody Directory")
 
     conn = sqlite3.connect("dems.db")
     df = pd.read_sql_query("SELECT case_id, item_number, investigator, description, file_name, file_hash, timestamp FROM evidence ORDER BY id DESC", conn)
     conn.close()
 
     if not df.empty:
-        st.subheader("Logged Evidence Directory")
         st.dataframe(df, use_container_width=True)
-
-        st.markdown("---")
-        st.subheader("Verify File Integrity")
-        verify_file = st.file_uploader("Upload File to Verify SHA-256 Hash", key="audit")
-        
-        if verify_file:
-            verify_bytes = verify_file.read()
-            computed_hash = get_file_hash(verify_bytes)
-            
-            st.info(f"Calculated Hash: `{computed_hash}`")
-            
-            if computed_hash in df['file_hash'].values:
-                match = df[df['file_hash'] == computed_hash].iloc[0]
-                st.success(f"✔️ **INTEGRITY VERIFIED!** File matches Case `{match['case_id']}`, Item `{match['item_number']}`.")
-            else:
-                st.error("🚨 **INTEGRITY WARNING!** Hash mismatch or unrecorded file.")
     else:
-        st.info("No evidence records found in database.")
+        st.info("No evidence records found in the database.")
+
+# Page 3: Verify Integrity
+elif page == "Verify Integrity":
+    st.header("Verify File Integrity")
+    st.write("Upload a digital file to verify its SHA-256 hash against the database ledger.")
+
+    conn = sqlite3.connect("dems.db")
+    df = pd.read_sql_query("SELECT case_id, item_number, file_hash FROM evidence", conn)
+    conn.close()
+
+    verify_file = st.file_uploader("Upload File to Verify SHA-256 Hash", key="audit")
+    
+    if verify_file:
+        verify_bytes = verify_file.read()
+        computed_hash = get_file_hash(verify_bytes)
+        
+        st.info(f"Calculated SHA-256 Hash: `{computed_hash}`")
+        
+        if not df.empty and computed_hash in df['file_hash'].values:
+            match = df[df['file_hash'] == computed_hash].iloc[0]
+            st.success(f"✔️ **INTEGRITY VERIFIED!** Matches Case `{match['case_id']}`, Item `{match['item_number']}`.")
+        else:
+            st.error("🚨 **INTEGRITY WARNING!** Hash mismatch or unrecorded file.")
