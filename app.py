@@ -4,33 +4,29 @@ import sqlite3
 import hashlib
 from datetime import datetime
 
-# Page Configuration
+# Page Configuration - Set to Wide for Laptop view
 st.set_page_config(
-    page_title="DEMS - Forensic Portal",
+    page_title="Digital Evidence Management System (DEMS)",
     page_icon="⚖️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
-# Custom Mobile-Friendly Styling
+# Responsive CSS to make titles & buttons look crisp on both Laptop and Mobile
 st.markdown("""
     <style>
-    .main-header {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #4A90E2;
-        margin-bottom: 0px;
+    /* Adjust main heading size for mobile screens */
+    h1 {
+        font-size: clamp(1.6rem, 4vw, 2.5rem) !important;
+        font-weight: 700 !important;
     }
-    .sub-header {
-        font-size: 0.9rem;
-        color: #888888;
-        margin-bottom: 20px;
-    }
-    .stMetric {
-        background-color: #1E222A;
-        padding: 12px;
-        border-radius: 10px;
-        border: 1px solid #313745;
+    /* Style primary submit button to match original red highlight */
+    div.stButton > button[kind="primary"] {
+        background-color: #FF4B4B !important;
+        color: white !important;
+        border: none !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -56,97 +52,83 @@ def init_db():
 
 init_db()
 
-# Helper function to compute SHA-256 hash
+# Helper function for SHA-256 hash calculation
 def get_file_hash(file_bytes):
     return hashlib.sha256(file_bytes).hexdigest()
 
-# Fetch DB Stats
-def get_stats():
-    conn = sqlite3.connect("dems.db")
-    c = conn.cursor()
-    c.execute("SELECT COUNT(DISTINCT case_id), COUNT(id) FROM evidence")
-    cases, items = c.fetchone()
-    conn.close()
-    return cases, items
+# Sidebar Navigation
+st.sidebar.markdown("### Navigation Menu")
+page = st.sidebar.selectbox(
+    "",
+    ["Ingest Evidence", "View & Verify Chain of Custody"],
+    label_visibility="collapsed"
+)
 
-# Header Section
-st.markdown('<div class="main-header">⚖️ Forensics DEMS</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Digital Evidence Management & Chain of Custody</div>', unsafe_allow_html=True)
-
-# Top Metrics Row
-total_cases, total_items = get_stats()
-m1, m2, m3 = st.columns(3)
-m1.metric("📁 Active Cases", total_cases)
-m2.metric("🔍 Logged Items", total_items)
-m3.metric("🛡️ Hash Standard", "SHA-256")
-
+# Header Section (Matching Image 1)
+st.title("⚖️ Digital Evidence Management System (DEMS)")
+st.caption("Secure Ingestion, Chain of Custody Tracking, and Integrity Verification")
 st.markdown("---")
 
-# Sidebar Navigation
-st.sidebar.title("📌 Menu")
-page = st.sidebar.radio("Navigate", ["📥 Ingest Evidence", "🔎 View & Verify Evidence"])
-
-if page == "📥 Ingest Evidence":
-    st.subheader("📥 Ingest New Evidence")
+if page == "Ingest Evidence":
+    st.header("Log New Evidence Item")
     
-    with st.container():
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            case_id = st.text_input("Case ID", placeholder="e.g., CASE-2026-004")
-            item_number = st.text_input("Item Number / ID", placeholder="e.g., ITEM-01")
-            investigator = st.text_input("Investigator / Badge #", placeholder="e.g., Det. Lawal #402")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        case_id = st.text_input("Case ID (e.g., CASE-2026-004)")
+        item_number = st.text_input("Item Number / ID (e.g., ITEM-01)")
+        investigator = st.text_input("Investigator Name / Badge #")
         
-        with col2:
-            description = st.text_area("Evidence Description", placeholder="Describe artifact context...")
-            uploaded_file = st.file_uploader("Upload Digital Artifact", type=None)
+    with col2:
+        description = st.text_area("Evidence Description", height=130)
+        uploaded_file = st.file_uploader("Upload Digital Evidence (Image, Video, Doc, etc.)", type=None)
 
-        st.write("")
-        if st.button("🔒 Log Evidence & Generate Hash", type="primary", use_container_width=True):
-            if case_id and item_number and investigator and uploaded_file:
-                file_bytes = uploaded_file.read()
-                file_hash = get_file_hash(file_bytes)
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.write("")
+    if st.button("Securely Log Evidence", type="primary"):
+        if case_id and item_number and investigator and uploaded_file:
+            file_bytes = uploaded_file.read()
+            file_hash = get_file_hash(file_bytes)
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                conn = sqlite3.connect("dems.db")
-                c = conn.cursor()
-                c.execute('''
-                    INSERT INTO evidence (case_id, item_number, investigator, description, file_name, file_hash, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (case_id, item_number, investigator, description, uploaded_file.name, file_hash, timestamp))
-                conn.commit()
-                conn.close()
+            conn = sqlite3.connect("dems.db")
+            c = conn.cursor()
+            c.execute('''
+                INSERT INTO evidence (case_id, item_number, investigator, description, file_name, file_hash, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (case_id, item_number, investigator, description, uploaded_file.name, file_hash, timestamp))
+            conn.commit()
+            conn.close()
 
-                st.success(f"✅ Evidence **{item_number}** registered under **{case_id}**!")
-                st.code(f"SHA-256: {file_hash}", language="text")
-                st.rerun()
-            else:
-                st.error("⚠️ Please fill in all required fields and attach a file.")
+            st.success(f"✅ Evidence **{item_number}** successfully logged under **{case_id}**!")
+            st.code(f"SHA-256 Hash: {file_hash}", language="text")
+        else:
+            st.error("⚠️ Please fill in all fields and attach an evidence file.")
 
-elif page == "🔎 View & Verify Evidence":
-    st.subheader("🔎 Chain of Custody & Verification")
+elif page == "View & Verify Chain of Custody":
+    st.header("Chain of Custody & File Integrity")
 
     conn = sqlite3.connect("dems.db")
-    df = pd.read_sql_query("SELECT case_id, item_number, investigator, file_name, file_hash, timestamp FROM evidence ORDER BY id DESC", conn)
+    df = pd.read_sql_query("SELECT case_id, item_number, investigator, description, file_name, file_hash, timestamp FROM evidence ORDER BY id DESC", conn)
     conn.close()
 
     if not df.empty:
-        st.write("### 📋 Evidence Logs")
+        st.subheader("Logged Evidence Directory")
         st.dataframe(df, use_container_width=True)
 
         st.markdown("---")
-        st.write("### 🛡️ Verify Artifact Integrity")
+        st.subheader("Verify File Integrity")
+        verify_file = st.file_uploader("Upload File to Verify SHA-256 Hash", key="audit")
         
-        verify_file = st.file_uploader("Upload File to Audit Hash Match", key="verify")
         if verify_file:
             verify_bytes = verify_file.read()
             computed_hash = get_file_hash(verify_bytes)
             
-            st.info(f"**Computed Hash:** `{computed_hash}`")
+            st.info(f"Calculated Hash: `{computed_hash}`")
             
             if computed_hash in df['file_hash'].values:
-                matched = df[df['file_hash'] == computed_hash].iloc[0]
-                st.success(f"✔️ **INTEGRITY VERIFIED!** Matches Case `{matched['case_id']}`, Item `{matched['item_number']}`.")
+                match = df[df['file_hash'] == computed_hash].iloc[0]
+                st.success(f"✔️ **INTEGRITY VERIFIED!** File matches Case `{match['case_id']}`, Item `{match['item_number']}`.")
             else:
-                st.error("🚨 **HASH MISMATCH!** File has been altered or is not logged in the system.")
+                st.error("🚨 **INTEGRITY WARNING!** Hash mismatch or unrecorded file.")
     else:
-        st.info("No evidence items currently logged in the database.")
+        st.info("No evidence records found in database.")
